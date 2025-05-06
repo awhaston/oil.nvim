@@ -25,38 +25,54 @@ M.escape_filename = function(filename)
   return ret
 end
 
-local _url_escape_chars = {
-  [" "] = "%20",
-  ["$"] = "%24",
-  ["&"] = "%26",
-  ["`"] = "%60",
-  [":"] = "%3A",
-  ["<"] = "%3C",
-  ["="] = "%3D",
-  [">"] = "%3E",
-  ["?"] = "%3F",
-  ["["] = "%5B",
-  ["\\"] = "%5C",
-  ["]"] = "%5D",
-  ["^"] = "%5E",
-  ["{"] = "%7B",
-  ["|"] = "%7C",
-  ["}"] = "%7D",
-  ["~"] = "%7E",
-  ["“"] = "%22",
-  ["‘"] = "%27",
-  ["+"] = "%2B",
-  [","] = "%2C",
-  ["#"] = "%23",
-  ["%"] = "%25",
-  ["@"] = "%40",
-  ["/"] = "%2F",
-  [";"] = "%3B",
+local _url_escape_to_char = {
+  ["20"] = " ",
+  ["22"] = "“",
+  ["23"] = "#",
+  ["24"] = "$",
+  ["25"] = "%",
+  ["26"] = "&",
+  ["27"] = "‘",
+  ["2B"] = "+",
+  ["2C"] = ",",
+  ["2F"] = "/",
+  ["3A"] = ":",
+  ["3B"] = ";",
+  ["3C"] = "<",
+  ["3D"] = "=",
+  ["3E"] = ">",
+  ["3F"] = "?",
+  ["40"] = "@",
+  ["5B"] = "[",
+  ["5C"] = "\\",
+  ["5D"] = "]",
+  ["5E"] = "^",
+  ["60"] = "`",
+  ["7B"] = "{",
+  ["7C"] = "|",
+  ["7D"] = "}",
+  ["7E"] = "~",
 }
+local _char_to_url_escape = {}
+for k, v in pairs(_url_escape_to_char) do
+  _char_to_url_escape[v] = "%" .. k
+end
+-- TODO this uri escape handling is very incomplete
+
 ---@param string string
 ---@return string
 M.url_escape = function(string)
-  return (string:gsub(".", _url_escape_chars))
+  return (string:gsub(".", _char_to_url_escape))
+end
+
+---@param string string
+---@return string
+M.url_unescape = function(string)
+  return (
+    string:gsub("%%([0-9A-Fa-f][0-9A-Fa-f])", function(seq)
+      return _url_escape_to_char[seq:upper()] or ("%" .. seq)
+    end)
+  )
 end
 
 ---@param bufnr integer
@@ -158,8 +174,10 @@ M.rename_buffer = function(src_bufnr, dest_buf_name)
     -- This will fail if the dest buf name already exists
     local ok = pcall(vim.api.nvim_buf_set_name, src_bufnr, dest_buf_name)
     if ok then
-      -- Renaming the buffer creates a new buffer with the old name. Find it and delete it.
-      vim.api.nvim_buf_delete(vim.fn.bufadd(bufname), {})
+      -- Renaming the buffer creates a new buffer with the old name.
+      -- Find it and try to delete it, but don't if the buffer is in a context
+      -- where Neovim doesn't allow buffer modifications.
+      pcall(vim.api.nvim_buf_delete, vim.fn.bufadd(bufname), {})
       if altbuf and vim.api.nvim_buf_is_valid(altbuf) then
         vim.fn.setreg("#", altbuf)
       end
@@ -347,7 +365,12 @@ M.set_highlights = function(bufnr, highlights)
   local ns = vim.api.nvim_create_namespace("Oil")
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   for _, hl in ipairs(highlights) do
-    vim.api.nvim_buf_add_highlight(bufnr, ns, unpack(hl))
+    local group, line, col_start, col_end = unpack(hl)
+    vim.api.nvim_buf_set_extmark(bufnr, ns, line, col_start, {
+      end_col = col_end,
+      hl_group = group,
+      strict = false,
+    })
   end
 end
 
@@ -622,11 +645,7 @@ M.render_text = function(bufnr, text, opts)
   pcall(vim.api.nvim_buf_set_lines, bufnr, 0, -1, false, lines)
   vim.bo[bufnr].modifiable = false
   vim.bo[bufnr].modified = false
-  local ns = vim.api.nvim_create_namespace("Oil")
-  vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-  for _, hl in ipairs(highlights) do
-    vim.api.nvim_buf_add_highlight(bufnr, ns, unpack(hl))
-  end
+  M.set_highlights(bufnr, highlights)
 end
 
 ---Run a function in the context of a full-editor window
