@@ -204,7 +204,7 @@ require("oil").setup({
     ["-"] = { "actions.parent", mode = "n" },
     ["_"] = { "actions.open_cwd", mode = "n" },
     ["`"] = { "actions.cd", mode = "n" },
-    ["~"] = { "actions.cd", opts = { scope = "tab" }, mode = "n" },
+    ["g~"] = { "actions.cd", opts = { scope = "tab" }, mode = "n" },
     ["gs"] = { "actions.change_sort", mode = "n" },
     ["gx"] = "actions.open_external",
     ["g."] = { "actions.toggle_hidden", mode = "n" },
@@ -242,6 +242,8 @@ require("oil").setup({
   },
   -- Extra arguments to pass to SCP when moving/copying files over SSH
   extra_scp_args = {},
+  -- Extra arguments to pass to aws s3 when creating/deleting/moving/copying files using aws s3
+  extra_s3_args = {},
   -- EXPERIMENTAL support for performing file operations with git
   git = {
     -- Return true to automatically git add/mv/rm files
@@ -262,7 +264,7 @@ require("oil").setup({
     -- max_width and max_height can be integers or a float between 0 and 1 (e.g. 0.4 for 40%)
     max_width = 0,
     max_height = 0,
-    border = "rounded",
+    border = nil,
     win_options = {
       winblend = 0,
     },
@@ -307,7 +309,7 @@ require("oil").setup({
     min_height = { 5, 0.1 },
     -- optionally define an integer/float for the exact height of the preview window
     height = nil,
-    border = "rounded",
+    border = nil,
     win_options = {
       winblend = 0,
     },
@@ -320,7 +322,7 @@ require("oil").setup({
     max_height = { 10, 0.9 },
     min_height = { 5, 0.1 },
     height = nil,
-    border = "rounded",
+    border = nil,
     minimized_border = "none",
     win_options = {
       winblend = 0,
@@ -328,11 +330,11 @@ require("oil").setup({
   },
   -- Configuration for the floating SSH window
   ssh = {
-    border = "rounded",
+    border = nil,
   },
   -- Configuration for the floating keymaps help window
   keymaps_help = {
-    border = "rounded",
+    border = nil,
   },
 })
 ```
@@ -354,6 +356,16 @@ nvim oil-ssh://[username@]hostname[:port]/[path]
 This may look familiar. In fact, this is the same url format that netrw uses.
 
 Note that at the moment the ssh adapter does not support Windows machines, and it requires the server to have a `/bin/sh` binary as well as standard unix commands (`ls`, `rm`, `mv`, `mkdir`, `chmod`, `cp`, `touch`, `ln`, `echo`).
+
+### S3
+
+This adapter allows you to browse files stored in aws s3. To use it, make sure `aws` is setup correctly and then simply open a buffer using the following name template:
+
+```
+nvim oil-s3://[bucket]/[path]
+```
+
+Note that older versions of Neovim don't support numbers in the url, so for Neovim 0.11 and older the url starts with `oil-sss`.
 
 ## Recipes
 

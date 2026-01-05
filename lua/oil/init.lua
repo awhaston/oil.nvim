@@ -543,6 +543,8 @@ M.open_preview = function(opts, callback)
   end
 
   util.get_edit_path(bufnr, entry, function(normalized_url)
+    local mc = package.loaded["multicursor-nvim"]
+    local has_multicursors = mc and mc.hasCursors()
     local is_visual_mode = util.is_visual_mode()
     if preview_win then
       if is_visual_mode then
@@ -601,7 +603,10 @@ M.open_preview = function(opts, callback)
     end
     vim.w.oil_entry_id = entry.id
     vim.w.oil_source_win = prev_win
-    if is_visual_mode then
+    if has_multicursors then
+      hack_set_win(prev_win)
+      mc.restoreCursors()
+    elseif is_visual_mode then
       hack_set_win(prev_win)
       -- Restore the visual selection
       vim.cmd.normal({ args = { "gv" }, bang = true })
@@ -618,6 +623,7 @@ end
 ---@field split? "aboveleft"|"belowright"|"topleft"|"botright" Split modifier
 ---@field tab? boolean Open the buffer in a new tab
 ---@field close? boolean Close the original oil buffer once selection is made
+---@field handle_buffer_callback? fun(buf_id: integer) If defined, all other buffer related options here would be ignored. This callback allows you to take over the process of opening the buffer yourself.
 
 ---Select the entry under the cursor
 ---@param opts nil|oil.SelectOpts
@@ -757,15 +763,19 @@ M.select = function(opts, callback)
       elseif opts.split then
         cmd = "sbuffer"
       end
-      ---@diagnostic disable-next-line: param-type-mismatch
-      local ok, err = pcall(vim.cmd, {
-        cmd = cmd,
-        args = { filebufnr },
-        mods = mods,
-      })
-      -- Ignore swapfile errors
-      if not ok and err and not err:match("^Vim:E325:") then
-        vim.api.nvim_echo({ { err, "Error" } }, true, {})
+      if opts.handle_buffer_callback ~= nil then
+        opts.handle_buffer_callback(filebufnr)
+      else
+        ---@diagnostic disable-next-line: param-type-mismatch
+        local ok, err = pcall(vim.cmd, {
+          cmd = cmd,
+          args = { filebufnr },
+          mods = mods,
+        })
+        -- Ignore swapfile errors
+        if not ok and err and not err:match("^Vim:E325:") then
+          vim.api.nvim_echo({ { err, "Error" } }, true, {})
+        end
       end
 
       open_next_entry(cb)
@@ -818,6 +828,11 @@ end
 ---@private
 M._get_highlights = function()
   return {
+    {
+      name = "OilEmpty",
+      link = "Comment",
+      desc = "Empty column values",
+    },
     {
       name = "OilHidden",
       link = "Comment",
@@ -1118,9 +1133,9 @@ M.setup = function(opts)
 
   config.setup(opts)
   set_colors()
-  vim.api.nvim_create_user_command("Oil", function(args)
+  local callback = function(args)
     local util = require("oil.util")
-    if args.smods.tab == 1 then
+    if args.smods.tab > 0 then
       vim.cmd.tabnew()
     end
     local float = false
@@ -1153,11 +1168,13 @@ M.setup = function(opts)
       end
     end
 
-    if not float and (args.smods.vertical or args.smods.split ~= "") then
+    if not float and (args.smods.vertical or args.smods.horizontal or args.smods.split ~= "") then
+      local range = args.count > 0 and { args.count } or nil
+      local cmdargs = { mods = { split = args.smods.split }, range = range }
       if args.smods.vertical then
-        vim.cmd.vsplit({ mods = { split = args.smods.split } })
+        vim.cmd.vsplit(cmdargs)
       else
-        vim.cmd.split({ mods = { split = args.smods.split } })
+        vim.cmd.split(cmdargs)
       end
     end
 
@@ -1173,7 +1190,12 @@ M.setup = function(opts)
       open_opts.preview = {}
     end
     M[method](path, open_opts)
-  end, { desc = "Open oil file browser on a directory", nargs = "*", complete = "dir" })
+  end
+  vim.api.nvim_create_user_command(
+    "Oil",
+    callback,
+    { desc = "Open oil file browser on a directory", nargs = "*", complete = "dir", count = true }
+  )
   local aug = vim.api.nvim_create_augroup("Oil", {})
 
   if config.default_file_explorer then
@@ -1281,7 +1303,10 @@ M.setup = function(opts)
       local util = require("oil.util")
       local bufname = vim.api.nvim_buf_get_name(0)
       local scheme = util.parse_url(bufname)
-      if scheme and config.adapters[scheme] then
+      local is_oil_buf = scheme and config.adapters[scheme]
+      -- We want to filter out oil buffers that are not directories (i.e. ssh files)
+      local is_oil_dir_or_unknown = (vim.bo.filetype == "oil" or vim.bo.filetype == "")
+      if is_oil_buf and is_oil_dir_or_unknown then
         local view = require("oil.view")
         view.maybe_set_cursor()
         -- While we are in an oil buffer, set the alternate file to the buffer we were in prior to
